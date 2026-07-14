@@ -45,6 +45,7 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
 
 fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors: &FinderColors) {
     let input_text = &state.input;
+    let available = area.width as usize;
 
     let hint = if !state.items.is_empty() && state.selected < state.items.len() {
         let selected_item = &state.items[state.selected];
@@ -62,15 +63,34 @@ fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors:
         None
     };
 
+    let hint_str = hint.as_ref().map(|h| format!(" → {h}"));
+    let hint_len = hint_str.as_ref().map(|s| s.len()).unwrap_or(0);
+    let input_len = input_text.len();
+
+    let input_width = if hint.is_some() {
+        available.saturating_sub(hint_len).max(4)
+    } else {
+        available
+    };
+
+    let (display_input, display_hint) = if input_len <= input_width {
+        (input_text.clone(), hint_str)
+    } else {
+        let prefix = 2;
+        let visible = input_width.saturating_sub(prefix);
+        let start = input_len - visible;
+        (format!("..{}", &input_text[start..]), hint_str)
+    };
+
     let mut spans = Vec::new();
     spans.push(Span::styled(
-        input_text.clone(),
+        display_input,
         Style::default().fg(colors.input_fg).bg(colors.input_bg),
     ));
 
-    if let Some(hint) = hint {
+    if let Some(h) = display_hint {
         spans.push(Span::styled(
-            format!(" → {hint}"),
+            h,
             Style::default()
                 .fg(colors.hint_fg)
                 .bg(colors.hint_bg)
@@ -82,7 +102,17 @@ fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors:
         .style(Style::default().fg(colors.input_fg).bg(colors.input_bg));
     f.render_widget(paragraph, area);
 
-    let cursor_x = area.x + state.cursor as u16;
+    let cursor_x = if input_len > input_width {
+        let visible = input_width.saturating_sub(2);
+        let start = input_len - visible;
+        if state.cursor >= start {
+            area.x + 2 + (state.cursor - start) as u16
+        } else {
+            area.x + 2
+        }
+    } else {
+        area.x + state.cursor as u16
+    };
     let cursor_x = cursor_x.min(area.x + area.width - 1);
     f.set_cursor_position(ratatui::layout::Position::new(cursor_x, area.y));
 }
@@ -92,6 +122,50 @@ fn render_separator(f: &mut Frame, area: Rect, colors: &FinderColors) {
     let spans = vec![Span::styled(sep, Style::default().fg(colors.separator_fg))];
     let paragraph = Paragraph::new(Line::from(spans));
     f.render_widget(paragraph, area);
+}
+
+fn compress_path(path: &str, max_width: usize) -> String {
+    if path.len() <= max_width || max_width < 6 {
+        return path.to_string();
+    }
+
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() <= 1 {
+        let visible = max_width.saturating_sub(2);
+        return format!("..{}", &path[path.len() - visible..]);
+    }
+
+    let first = segments[0];
+    let last = segments.last().unwrap();
+
+    let prefix = if first.is_empty() {
+        "/".to_string()
+    } else if first.len() + 1 < max_width {
+        format!("{}/", first)
+    } else {
+        "..".to_string()
+    };
+    let right_budget = max_width.saturating_sub(prefix.len());
+
+    let mut right = last.to_string();
+
+    for i in (1..segments.len() - 1).rev() {
+        let seg = segments[i];
+        let compressed = if seg.len() > 3 {
+            format!("{}..", &seg[..3])
+        } else {
+            seg.to_string()
+        };
+
+        let candidate = format!("{}/{}", compressed, right);
+        if candidate.len() <= right_budget {
+            right = candidate;
+        } else {
+            break;
+        }
+    }
+
+    format!("{}{}", prefix, right)
 }
 
 fn render_results_list(
@@ -132,19 +206,22 @@ fn render_results_list(
 
         let line_y = area.y + i as u16;
         let display_text = &item.display;
-        let chars: Vec<char> = display_text.chars().collect();
+        let max_width = area.width as usize;
 
-        // Build a set of match positions for quick lookup
-        let is_match: Vec<bool> = if item.match_positions.is_empty() {
-            vec![false; chars.len()]
+        let (chars, is_match) = if display_text.len() > max_width {
+            let compressed = compress_path(display_text, max_width);
+            let c: Vec<char> = compressed.chars().collect();
+            let clen = c.len();
+            (c, vec![false; clen])
         } else {
-            let mut set = vec![false; chars.len()];
+            let c: Vec<char> = display_text.chars().collect();
+            let mut set = vec![false; c.len()];
             for &p in &item.match_positions {
                 if p < set.len() {
                     set[p] = true;
                 }
             }
-            set
+            (c, set)
         };
 
         for col in 0..area.width {

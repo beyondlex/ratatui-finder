@@ -347,12 +347,11 @@ impl FinderState {
             return;
         }
         let item = &self.items[self.selected];
-        if item.is_self {
-            return;
-        }
         let name = &item.name;
         if self.input.ends_with('/') {
             self.input.push_str(name);
+        } else if !self.parent_display.is_empty() {
+            self.input = format!("{}{}", self.parent_display, name);
         } else {
             if let Some(slash_pos) = self.input.rfind('/') {
                 self.input.truncate(slash_pos + 1);
@@ -362,6 +361,10 @@ impl FinderState {
             }
         }
         self.cursor = self.input.len();
+        if item.is_dir && !self.input.ends_with('/') {
+            self.input.push('/');
+            self.cursor += 1;
+        }
         self.refresh();
     }
 
@@ -433,15 +436,10 @@ impl FinderState {
                     .collect();
             }
         } else {
-            if fs::is_dir(&expanded) {
-                let dir_path = format!("{}/", input);
-                self.raw_items = fs::list(&expanded, self.config.mode);
-                self.parent_display = dir_path.clone();
-                self.items = self.build_listing_items(&expanded, &dir_path);
-            } else {
                 let slash_pos = input.rfind('/').unwrap_or(0);
                 let parent_dir = &input[..=slash_pos];
                 let partial = &input[slash_pos + 1..];
+                let offset = parent_dir.len();
 
                 let expanded_parent = fs::expand(parent_dir);
                 self.raw_items = fs::list(&expanded_parent, self.config.mode);
@@ -456,39 +454,16 @@ impl FinderState {
                             name: m.name,
                             is_dir: m.is_dir,
                             is_self: false,
-                            display_offset: parent_dir.len(),
-                            match_positions: m.match_positions,
+                            display_offset: offset,
+                            match_positions: m.match_positions.iter().map(|p| p + offset).collect(),
                         }
                     })
                     .collect();
             }
-        }
     }
 
-    fn build_listing_items(&mut self, expanded_dir: &str, display_dir: &str) -> Vec<FinderItem> {
+    fn build_listing_items(&mut self, _expanded_dir: &str, display_dir: &str) -> Vec<FinderItem> {
         let mut items = Vec::new();
-
-        let dir_name = fs::basename(expanded_dir);
-        let dir_display = if dir_name.is_empty() {
-            display_dir.to_string()
-        } else {
-            let parent = fs::parent(expanded_dir);
-            let contracted_parent = fs::contract(&parent);
-            if contracted_parent.ends_with('/') {
-                format!("{}{}", contracted_parent, dir_name)
-            } else {
-                format!("{}/{}", contracted_parent, dir_name)
-            }
-        };
-
-        items.push(FinderItem {
-            name: dir_name.clone(),
-            display: dir_display,
-            is_dir: true,
-            is_self: true,
-            display_offset: 0,
-            match_positions: Vec::new(),
-        });
 
         for raw in &self.raw_items {
             items.push(FinderItem {
@@ -717,7 +692,6 @@ mod tests {
             ..Default::default()
         });
         assert!(!state.items.is_empty());
-        assert!(state.items[0].is_self);
     }
 
     #[test]
@@ -727,11 +701,10 @@ mod tests {
         std::fs::write(tmp.path().join("test.txt"), "hello").unwrap();
         let state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
-            initial_path: dir_path.clone(),
+            initial_path: format!("{}/", dir_path),
             ..Default::default()
         });
         assert!(!state.items.is_empty(), "items should not be empty for directory");
-        assert!(state.items[0].is_self, "first item should be self-item");
     }
 
     #[test]
