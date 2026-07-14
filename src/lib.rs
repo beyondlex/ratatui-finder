@@ -487,6 +487,16 @@ impl FinderState {
     fn build_listing_items(&mut self, _expanded_dir: &str, display_dir: &str) -> Vec<FinderItem> {
         let mut items = Vec::new();
 
+        let self_display = display_dir.trim_end_matches('/');
+        items.push(FinderItem {
+            display: self_display.to_string(),
+            name: fs::basename(self_display),
+            is_dir: true,
+            is_self: true,
+            display_offset: 0,
+            match_positions: Vec::new(),
+        });
+
         for raw in &self.raw_items {
             items.push(FinderItem {
                 display: format!("{}{}", display_dir, raw.name),
@@ -714,6 +724,9 @@ mod tests {
             ..Default::default()
         });
         assert!(!state.items.is_empty());
+        assert!(state.items[0].is_self, "first item should be self-path");
+        assert_eq!(state.items[0].display, "/tmp");
+        assert_eq!(state.items[0].name, "tmp");
     }
 
     #[test]
