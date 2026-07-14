@@ -224,17 +224,20 @@ fn render_results_list(
             (c, set)
         };
 
+        let last_slash = chars.iter().rposition(|&c| c == '/');
+
         for col in 0..area.width {
             let cell = &mut buf[(area.x + col, line_y)];
             let col_u = col as usize;
             if col_u < chars.len() {
                 let ch = chars[col_u];
                 if col_u < is_match.len() && is_match[col_u] {
-                    cell.set_fg(colors.match_fg);
+                    cell.set_fg(if is_selected { fg } else { colors.match_fg });
                     cell.set_bg(bg);
                     cell.modifier = Modifier::BOLD;
                 } else {
-                    cell.set_fg(fg);
+                    let is_path = last_slash.map_or(false, |slash| col_u <= slash);
+                    cell.set_fg(if is_path { colors.path_fg } else { fg });
                     cell.set_bg(bg);
                 }
                 cell.set_char(ch);
