@@ -2,6 +2,21 @@
 
 A macOS Finder-style "Go to Path" directory navigation component for [ratatui](https://ratatui.rs) TUI applications.
 
+
+```
+╭ Go to Path ──────────────────────────────────╮
+│~/code/ → astro                               │
+│──────────────────────────────────────────────│
+│~/code/astro                                  │
+│~/code/book                                   │
+│~/code/c                                      │
+│~/code/chrome                                 │
+│~/code/frontend                               │
+│~/code/github                                 │
+│~/code/gitlab                                 │
+╰──────────────────────────────────────────────╯
+```
+
 ## Features
 
 - **Interactive path browser** — type a path, get instant listings and fuzzy-matched results
@@ -20,7 +35,7 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 
 ```toml
 [dependencies]
-ratatui-finder = "0.1"
+ratatui-finder = "0.2.0"
 ```
 
 ```rust
@@ -187,17 +202,3 @@ let state = FinderState::new(config);
 | `title` | `" Go to Path "` | Any string |
 | `border_type` | `BorderType::Rounded` | `Plain`, `Rounded`, `Double`, `Thick`, `QuadrantInside`, `QuadrantOutside` |
 
-## Visual Layout
-
-```
-╭─ Go to Path ────────────────────╮
-│ ~/projects/my_app/              │  ← input line
-├─────────────────────────────────┤  ← separator (─)
-│ ~/projects/my_app/              │  ← self-item (selected: highlighted bg)
-│ my_app/src/                     │  ← matched with fg highlights
-│ my_app/tests/                   │
-│ my_app/config/                  │
-│ my_app/README.md                │
-│ my_app/Cargo.toml               │
-╰─────────────────────────────────╯
-```

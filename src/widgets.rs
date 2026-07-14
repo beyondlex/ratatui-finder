@@ -188,8 +188,6 @@ fn render_results_list(
         0
     };
 
-    let buf = f.buffer_mut();
-
     for i in 0..visible_count {
         let item_idx = scroll_offset + i;
         if item_idx >= total_items {
@@ -227,26 +225,43 @@ fn render_results_list(
 
         let last_slash = chars.iter().rposition(|&c| c == '/');
 
-        for col in 0..area.width {
-            let cell = &mut buf[(area.x + col, line_y)];
-            let col_u = col as usize;
-            if col_u < chars.len() {
-                let ch = chars[col_u];
-                if col_u < is_match.len() && is_match[col_u] {
-                    cell.set_fg(if is_selected { fg } else { colors.match_fg });
-                    cell.set_bg(bg);
-                    cell.modifier = Modifier::BOLD;
-                } else {
-                    let is_path = last_slash.map_or(false, |slash| col_u <= slash);
-                    cell.set_fg(if is_path { colors.path_fg } else { fg });
-                    cell.set_bg(bg);
-                }
-                cell.set_char(ch);
+        let mut spans: Vec<Span> = Vec::new();
+        let mut segment = String::new();
+        let mut segment_style: Option<Style> = None;
+
+        for (col_u, &ch) in chars.iter().enumerate() {
+            let style = if col_u < is_match.len() && is_match[col_u] {
+                let match_fg = if is_selected { fg } else { colors.match_fg };
+                Style::default().fg(match_fg).bg(bg).add_modifier(Modifier::BOLD)
             } else {
-                cell.set_fg(fg);
-                cell.set_bg(bg);
-                cell.set_char(' ');
+                let is_path = last_slash.map_or(false, |slash| col_u <= slash);
+                let text_fg = if is_path { colors.path_fg } else { fg };
+                Style::default().fg(text_fg).bg(bg)
+            };
+
+            match segment_style {
+                Some(prev) if prev == style => segment.push(ch),
+                Some(prev) => {
+                    spans.push(Span::styled(std::mem::take(&mut segment), prev));
+                    segment.push(ch);
+                    segment_style = Some(style);
+                }
+                None => {
+                    segment.push(ch);
+                    segment_style = Some(style);
+                }
             }
         }
+
+        if let Some(style) = segment_style {
+            spans.push(Span::styled(segment, style));
+        }
+
+        let line = Line::from(spans);
+        let paragraph = Paragraph::new(line).style(Style::default().fg(fg).bg(bg));
+        f.render_widget(
+            paragraph,
+            Rect { x: area.x, y: line_y, width: area.width, height: 1 },
+        );
     }
 }
