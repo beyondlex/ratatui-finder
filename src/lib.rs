@@ -21,12 +21,118 @@ impl Default for FinderMode {
     }
 }
 
+/// A single key binding: key code + modifiers.
+#[derive(Debug, Clone)]
+pub struct KeyBinding {
+    pub code: KeyCode,
+    pub modifiers: KeyModifiers,
+}
+
+impl KeyBinding {
+    pub fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
+        Self { code, modifiers }
+    }
+}
+
+/// Configurable key bindings for the Finder.
+#[derive(Debug, Clone)]
+pub struct FinderKeys {
+    pub confirm: Vec<KeyBinding>,
+    pub cancel: Vec<KeyBinding>,
+    pub tab_complete: Vec<KeyBinding>,
+    pub cursor_up: Vec<KeyBinding>,
+    pub cursor_down: Vec<KeyBinding>,
+    pub home: Vec<KeyBinding>,
+    pub end: Vec<KeyBinding>,
+    pub cursor_left: Vec<KeyBinding>,
+    pub cursor_right: Vec<KeyBinding>,
+    pub backspace: Vec<KeyBinding>,
+    pub delete: Vec<KeyBinding>,
+    pub parent_dir: Vec<KeyBinding>,
+    pub clear_input: Vec<KeyBinding>,
+}
+
+impl Default for FinderKeys {
+    fn default() -> Self {
+        Self {
+            confirm: vec![KeyBinding::new(KeyCode::Enter, KeyModifiers::NONE)],
+            cancel: vec![
+                KeyBinding::new(KeyCode::Esc, KeyModifiers::NONE),
+                KeyBinding::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            ],
+            tab_complete: vec![KeyBinding::new(KeyCode::Tab, KeyModifiers::NONE)],
+            cursor_up: vec![
+                KeyBinding::new(KeyCode::Up, KeyModifiers::NONE),
+                KeyBinding::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            ],
+            cursor_down: vec![
+                KeyBinding::new(KeyCode::Down, KeyModifiers::NONE),
+                KeyBinding::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+            ],
+            home: vec![
+                KeyBinding::new(KeyCode::Home, KeyModifiers::NONE),
+                KeyBinding::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+            ],
+            end: vec![
+                KeyBinding::new(KeyCode::End, KeyModifiers::NONE),
+                KeyBinding::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
+            ],
+            cursor_left: vec![KeyBinding::new(KeyCode::Left, KeyModifiers::NONE)],
+            cursor_right: vec![KeyBinding::new(KeyCode::Right, KeyModifiers::NONE)],
+            backspace: vec![KeyBinding::new(KeyCode::Backspace, KeyModifiers::NONE)],
+            delete: vec![KeyBinding::new(KeyCode::Delete, KeyModifiers::NONE)],
+            parent_dir: vec![KeyBinding::new(KeyCode::Char('w'), KeyModifiers::CONTROL)],
+            clear_input: vec![KeyBinding::new(KeyCode::Char('u'), KeyModifiers::CONTROL)],
+        }
+    }
+}
+
+/// Configurable colors for the Finder.
+#[derive(Debug, Clone, Copy)]
+pub struct FinderColors {
+    pub input_fg: Color,
+    pub input_bg: Color,
+    pub hint_fg: Color,
+    pub hint_bg: Color,
+    pub selected_bg: Color,
+    pub selected_fg: Color,
+    pub normal_bg: Color,
+    pub normal_fg: Color,
+    pub match_fg: Color,
+    pub border_fg: Color,
+    pub border_bg: Color,
+    pub separator_fg: Color,
+}
+
+use ratatui::style::Color;
+
+impl Default for FinderColors {
+    fn default() -> Self {
+        Self {
+            input_fg: Color::White,
+            input_bg: Color::Black,
+            hint_fg: Color::DarkGray,
+            hint_bg: Color::Black,
+            selected_bg: Color::DarkGray,
+            selected_fg: Color::White,
+            normal_bg: Color::Black,
+            normal_fg: Color::White,
+            match_fg: Color::Yellow,
+            border_fg: Color::White,
+            border_bg: Color::Black,
+            separator_fg: Color::DarkGray,
+        }
+    }
+}
+
 /// Configuration for the Finder component.
 #[derive(Debug, Clone)]
 pub struct FinderConfig {
     pub mode: FinderMode,
     pub initial_path: String,
     pub extensions: Option<Vec<String>>,
+    pub colors: FinderColors,
+    pub keys: FinderKeys,
 }
 
 impl Default for FinderConfig {
@@ -35,6 +141,8 @@ impl Default for FinderConfig {
             mode: FinderMode::Both,
             initial_path: "~".to_string(),
             extensions: None,
+            colors: FinderColors::default(),
+            keys: FinderKeys::default(),
         }
     }
 }
@@ -62,20 +170,20 @@ pub enum FinderAction {
 /// The main state machine for the Finder component.
 #[derive(Debug, Clone)]
 pub struct FinderState {
-    /// Current input text
     pub input: String,
-    /// Cursor position (byte offset)
     pub cursor: usize,
-    /// Results list for rendering
     pub items: Vec<FinderItem>,
-    /// Selected index (0-based)
     pub selected: usize,
-    /// Configuration (fixed after initialization)
     pub config: FinderConfig,
 
-    // Internal
     parent_display: String,
     raw_items: Vec<RawItem>,
+}
+
+fn matches_any(key: &KeyEvent, bindings: &[KeyBinding]) -> bool {
+    bindings
+        .iter()
+        .any(|b| b.code == key.code && b.modifiers == key.modifiers)
 }
 
 impl FinderState {
@@ -106,133 +214,120 @@ impl FinderState {
 
     /// Handle a key event and return an action for the host.
     pub fn handle_key(&mut self, key: KeyEvent) -> FinderAction {
-        match key.code {
-            KeyCode::Enter => {
-                if self.items.is_empty() {
-                    return FinderAction::Confirm(self.input.clone());
-                }
-                let selected = self.selected.min(self.items.len().saturating_sub(1));
-                let item = &self.items[selected];
-                if item.is_self {
-                    FinderAction::Confirm(self.input.clone())
-                } else {
-                    let path = if self.input.ends_with('/') {
-                        format!("{}{}", self.input, item.name)
-                    } else {
-                        let parent = self.parent_display.clone();
-                        format!("{}{}", parent, item.name)
-                    };
-                    FinderAction::Confirm(path)
-                }
+        let keys = &self.config.keys;
+
+        if matches_any(&key, &keys.confirm) {
+            return self.action_confirm();
+        }
+        if matches_any(&key, &keys.cancel) {
+            return FinderAction::Cancel;
+        }
+        if matches_any(&key, &keys.tab_complete) {
+            self.tab_complete();
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.cursor_up) {
+            self.move_selection(-1);
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.cursor_down) {
+            self.move_selection(1);
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.home) {
+            self.cursor = 0;
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.end) {
+            self.cursor = self.input.len();
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.cursor_left) {
+            if self.cursor > 0 {
+                self.cursor = self.cursor.saturating_sub(1);
             }
-            KeyCode::Esc => {
-                FinderAction::Cancel
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.cursor_right) {
+            if self.cursor < self.input.len() {
+                self.cursor = self.cursor.saturating_add(1).min(self.input.len());
             }
-            KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                FinderAction::Cancel
-            }
-            KeyCode::Tab => {
-                self.tab_complete();
-                FinderAction::Redraw
-            }
-            KeyCode::Up => {
-                self.move_selection(-1);
-                FinderAction::Redraw
-            }
-            KeyCode::Down => {
-                self.move_selection(1);
-                FinderAction::Redraw
-            }
-            KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
-                self.move_selection(-1);
-                FinderAction::Redraw
-            }
-            KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
-                self.move_selection(1);
-                FinderAction::Redraw
-            }
-            KeyCode::Home => {
-                self.cursor = 0;
-                FinderAction::Redraw
-            }
-            KeyCode::End => {
-                self.cursor = self.input.len();
-                FinderAction::Redraw
-            }
-            KeyCode::Char('a') if key.modifiers == KeyModifiers::CONTROL => {
-                self.cursor = 0;
-                FinderAction::Redraw
-            }
-            KeyCode::Char('e') if key.modifiers == KeyModifiers::CONTROL => {
-                self.cursor = self.input.len();
-                FinderAction::Redraw
-            }
-            KeyCode::Left => {
-                if self.cursor > 0 {
-                    self.cursor = self.cursor.saturating_sub(1);
-                }
-                FinderAction::Redraw
-            }
-            KeyCode::Right => {
-                if self.cursor < self.input.len() {
-                    self.cursor = self.cursor.saturating_add(1).min(self.input.len());
-                }
-                FinderAction::Redraw
-            }
-            KeyCode::Backspace => {
-                if self.cursor > 0 && !self.input.is_empty() {
-                    let before = &self.input[..self.cursor];
-                    let new_cursor = before
-                        .char_indices()
-                        .rev()
-                        .next()
-                        .map(|(i, _c)| i)
-                        .unwrap_or(0);
-                    self.input = format!(
-                        "{}{}",
-                        &self.input[..new_cursor],
-                        &self.input[self.cursor..]
-                    );
-                    self.cursor = new_cursor;
-                    self.refresh();
-                }
-                FinderAction::Redraw
-            }
-            KeyCode::Delete => {
-                if self.cursor < self.input.len() {
-                    let next = self.input[self.cursor..]
-                        .char_indices()
-                        .nth(1)
-                        .map(|(i, _c)| self.cursor + i)
-                        .unwrap_or(self.input.len());
-                    self.input = format!("{}{}", &self.input[..self.cursor], &self.input[next..]);
-                    self.refresh();
-                }
-                FinderAction::Redraw
-            }
-            KeyCode::Char('w') if key.modifiers == KeyModifiers::CONTROL => {
-                self.go_up_dir();
-                FinderAction::Redraw
-            }
-            KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
-                self.input.clear();
-                self.cursor = 0;
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.backspace) {
+            if self.cursor > 0 && !self.input.is_empty() {
+                let before = &self.input[..self.cursor];
+                let new_cursor = before
+                    .char_indices()
+                    .rev()
+                    .next()
+                    .map(|(i, _c)| i)
+                    .unwrap_or(0);
+                self.input = format!(
+                    "{}{}",
+                    &self.input[..new_cursor],
+                    &self.input[self.cursor..]
+                );
+                self.cursor = new_cursor;
                 self.refresh();
-                FinderAction::Redraw
             }
-            KeyCode::Char(c) => {
-                if self.cursor <= self.input.len() {
-                    self.input.insert(self.cursor, c);
-                    self.cursor += 1;
-                    self.refresh();
-                }
-                FinderAction::Redraw
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.delete) {
+            if self.cursor < self.input.len() {
+                let next = self.input[self.cursor..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _c)| self.cursor + i)
+                    .unwrap_or(self.input.len());
+                self.input = format!("{}{}", &self.input[..self.cursor], &self.input[next..]);
+                self.refresh();
             }
-            _ => FinderAction::None,
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.parent_dir) {
+            self.go_up_dir();
+            return FinderAction::Redraw;
+        }
+        if matches_any(&key, &keys.clear_input) {
+            self.input.clear();
+            self.cursor = 0;
+            self.refresh();
+            return FinderAction::Redraw;
+        }
+
+        // Fallback: character input (any Char not caught by configured bindings)
+        if let KeyCode::Char(c) = key.code {
+            if self.cursor <= self.input.len() {
+                self.input.insert(self.cursor, c);
+                self.cursor += 1;
+                self.refresh();
+            }
+            return FinderAction::Redraw;
+        }
+
+        FinderAction::None
+    }
+
+    fn action_confirm(&mut self) -> FinderAction {
+        if self.items.is_empty() {
+            return FinderAction::Confirm(self.input.clone());
+        }
+        let selected = self.selected.min(self.items.len().saturating_sub(1));
+        let item = &self.items[selected];
+        if item.is_self {
+            FinderAction::Confirm(self.input.clone())
+        } else {
+            let path = if self.input.ends_with('/') {
+                format!("{}{}", self.input, item.name)
+            } else {
+                let parent = self.parent_display.clone();
+                format!("{}{}", parent, item.name)
+            };
+            FinderAction::Confirm(path)
         }
     }
 
-    /// Move selection by delta.
     fn move_selection(&mut self, delta: isize) {
         if self.items.is_empty() {
             return;
@@ -247,7 +342,6 @@ impl FinderState {
         }
     }
 
-    /// Tab-complete: replace the last path segment with the selected item's name.
     fn tab_complete(&mut self) {
         if self.items.is_empty() || self.selected >= self.items.len() {
             return;
@@ -271,7 +365,6 @@ impl FinderState {
         self.refresh();
     }
 
-    /// Navigate to parent directory (Ctrl-w).
     fn go_up_dir(&mut self) {
         if self.input.is_empty() || self.input == "/" {
             return;
@@ -297,7 +390,6 @@ impl FinderState {
         self.refresh();
     }
 
-    /// Update items based on current input path.
     fn update_items(&mut self) {
         let input = self.input.clone();
 
@@ -373,7 +465,6 @@ impl FinderState {
         }
     }
 
-    /// Build listing items for a directory (with self-item as first entry).
     fn build_listing_items(&mut self, expanded_dir: &str, display_dir: &str) -> Vec<FinderItem> {
         let mut items = Vec::new();
 
@@ -424,7 +515,7 @@ mod tests {
         let state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "~".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         assert_eq!(state.input, "~");
         assert_eq!(state.cursor, 1);
@@ -435,7 +526,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         let action = state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty()));
         assert_eq!(action, FinderAction::Redraw);
@@ -465,7 +556,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "ab".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.cursor = 2;
         let action = state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()));
@@ -478,7 +569,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "ab".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.cursor = 0;
         let action = state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::empty()));
@@ -521,7 +612,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "~/a/b/".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.go_up_dir();
         assert_eq!(state.input, "~/a/");
@@ -532,9 +623,8 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "~/".to_string(),
-            extensions: None,
+            ..Default::default()
         });
-        let home = std::env::var("HOME").unwrap();
         state.refresh();
         let _ = state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
     }
@@ -544,7 +634,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "~/a/b/c".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         let action = state.handle_key(KeyEvent::new(
             KeyCode::Char('w'),
@@ -559,7 +649,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "some text".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         let action = state.handle_key(KeyEvent::new(
             KeyCode::Char('u'),
@@ -574,7 +664,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "/tmp".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.items.clear();
         let action = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
@@ -586,7 +676,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "hello".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.cursor = 5;
 
@@ -608,7 +698,7 @@ mod tests {
         let mut state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "hello".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         state.cursor = 3;
 
@@ -621,10 +711,10 @@ mod tests {
 
     #[test]
     fn test_listing_mode_on_slash_ending() {
-        let mut state = FinderState::new(FinderConfig {
+        let state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: "/tmp/".to_string(),
-            extensions: None,
+            ..Default::default()
         });
         assert!(!state.items.is_empty());
         assert!(state.items[0].is_self);
@@ -638,9 +728,35 @@ mod tests {
         let state = FinderState::new(FinderConfig {
             mode: FinderMode::Both,
             initial_path: dir_path.clone(),
-            extensions: None,
+            ..Default::default()
         });
-        assert!(!state.items.is_empty(), "items should not be empty for directory with content");
+        assert!(!state.items.is_empty(), "items should not be empty for directory");
         assert!(state.items[0].is_self, "first item should be self-item");
+    }
+
+    #[test]
+    fn test_custom_keys_override_defaults() {
+        let custom_keys = FinderKeys {
+            confirm: vec![KeyBinding::new(KeyCode::Char('o'), KeyModifiers::CONTROL)],
+            cancel: vec![KeyBinding::new(KeyCode::Char('q'), KeyModifiers::NONE)],
+            ..Default::default()
+        };
+        let mut state = FinderState::new(FinderConfig {
+            keys: custom_keys,
+            ..Default::default()
+        });
+        state.items.clear();
+
+        // Default Enter should NOT confirm (overridden), returns None
+        let action = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(action, FinderAction::None);
+
+        // Custom Ctrl-o should confirm
+        let action = state.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert_eq!(action, FinderAction::Confirm("~".to_string()));
+
+        // Custom 'q' should cancel
+        let action = state.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(action, FinderAction::Cancel);
     }
 }

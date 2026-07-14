@@ -1,43 +1,45 @@
-use crate::FinderState;
+use crate::{FinderColors, FinderState};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
-/// Render the finder popup centered in the given area.
 pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
+    let colors = state.config.colors;
+
     let popup_width = area.width.min(80).min((area.width as f64 * 0.65) as u16);
-    let popup_height = area.height.min(14).min((area.height as f64 * 0.35) as u16).max(5);
+    let popup_height = area.height.min(14).min((area.height as f64 * 0.35) as u16).max(6);
 
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect {
-        x,
-        y,
-        width: popup_width,
-        height: popup_height,
-    };
+    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
 
     f.render_widget(Clear, popup_area);
 
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Go to Path ")
-        .style(Style::default().fg(Color::White).bg(Color::Black));
+        .style(Style::default().fg(colors.border_fg).bg(colors.border_bg));
     let inner = block.inner(popup_area);
 
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(inner);
     let input_area = chunks[0];
-    let results_area = chunks[1];
+    let separator_area = chunks[1];
+    let results_area = chunks[2];
 
-    render_input_line(f, input_area, state);
-    render_results_list(f, results_area, state, popup_width);
+    render_input_line(f, input_area, state, &colors);
+    render_separator(f, separator_area, &colors);
+    render_results_list(f, results_area, state, &colors);
 
     f.render_widget(block, popup_area);
 
@@ -46,8 +48,7 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
     f.set_cursor_position(ratatui::layout::Position::new(cursor_x, y + 1));
 }
 
-/// Render the input line with optional virtual text hint.
-fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState) {
+fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors: &FinderColors) {
     let input_text = &state.input;
 
     let hint = if !state.items.is_empty() && state.selected < state.items.len() {
@@ -69,28 +70,38 @@ fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState) {
     let mut spans = Vec::new();
     spans.push(Span::styled(
         input_text.clone(),
-        Style::default().fg(Color::White),
+        Style::default().fg(colors.input_fg).bg(colors.input_bg),
     ));
 
     if let Some(hint) = hint {
         spans.push(Span::styled(
             format!(" → {hint}"),
             Style::default()
-                .fg(Color::Gray)
+                .fg(colors.hint_fg)
+                .bg(colors.hint_bg)
                 .add_modifier(Modifier::ITALIC),
         ));
     }
 
-    let paragraph = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
+    let paragraph = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(colors.input_bg));
     f.render_widget(paragraph, area);
 }
 
-/// Render the scrollable results list.
+fn render_separator(f: &mut Frame, area: Rect, colors: &FinderColors) {
+    let sep = "─".repeat(area.width as usize);
+    let paragraph = Paragraph::new(Line::from(vec![Span::styled(
+        sep,
+        Style::default().fg(colors.separator_fg),
+    )]));
+    f.render_widget(paragraph, area);
+}
+
 fn render_results_list(
     f: &mut Frame,
     area: Rect,
     state: &mut FinderState,
-    _popup_width: u16,
+    colors: &FinderColors,
 ) {
     if area.height == 0 || state.items.is_empty() {
         return;
@@ -122,14 +133,14 @@ fn render_results_list(
             height: 1,
         };
 
-        let base_style = if is_selected {
-            Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White)
+        let (fg, bg) = if is_selected {
+            (colors.selected_fg, colors.selected_bg)
         } else {
-            Style::default().bg(Color::Black).fg(Color::White)
+            (colors.normal_fg, colors.normal_bg)
         };
+        let base_style = Style::default().bg(bg).fg(fg);
 
+        // Build line content spans
         let mut spans = Vec::new();
         let display_text = &item.display;
 
@@ -158,9 +169,7 @@ fn render_results_list(
                     let end = pos + ch_len;
                     spans.push(Span::styled(
                         ch.to_string(),
-                        base_style
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
+                        base_style.fg(colors.match_fg).add_modifier(Modifier::BOLD),
                     ));
                     last_end = end;
                 }
@@ -173,6 +182,12 @@ fn render_results_list(
                 ));
             }
         }
+
+        // Pad to fill full line width for selection background
+        spans.push(Span::styled(
+            " ".repeat(area.width as usize),
+            base_style,
+        ));
 
         let paragraph = Paragraph::new(Line::from(spans));
         f.render_widget(paragraph, line_area);
