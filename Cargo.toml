@@ -15,3 +15,7 @@ tempfile = "3"
 [lib]
 name = "ratatui_finder"
 path = "src/lib.rs"
+
+[[bin]]
+name = "ratatui-finder"
+path = "src/main.rs"

@@ -1,0 +1,60 @@
+use anyhow::Result;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui_finder::{FinderAction, FinderConfig, FinderState, render_finder_popup};
+use std::io::stdout;
+
+fn main() -> Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    terminal.hide_cursor()?;
+
+    let mut state = FinderState::new(FinderConfig {
+        initial_path: "~".to_string(),
+        ..Default::default()
+    });
+
+    let res = run(&mut terminal, &mut state);
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    if let Ok(FinderAction::Confirm(path)) = res {
+        println!("Confirmed: {path}");
+    }
+
+    Ok(())
+}
+
+fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, state: &mut FinderState) -> Result<FinderAction> {
+    loop {
+        terminal.draw(|f| {
+            render_finder_popup(f, f.area(), state);
+        })?;
+
+        match event::read()? {
+            Event::Key(key) => {
+                let action = state.handle_key(key);
+                match action {
+                    FinderAction::Confirm(_) | FinderAction::Cancel => return Ok(action),
+                    FinderAction::Redraw => {}
+                    FinderAction::None => {
+                        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                            return Ok(FinderAction::Cancel);
+                        }
+                    }
+                }
+            }
+            Event::Resize(_, _) => {}
+            _ => {}
+        }
+    }
+}
