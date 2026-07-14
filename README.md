@@ -20,24 +20,25 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 
 ```toml
 [dependencies]
-ratatui-finder = { path = "../ratatui-finder" }
+ratatui-finder = "0.1"
 ```
 
 ```rust
-use ratatui_finder::{FinderState, FinderConfig, FinderMode, render_finder_popup};
+use ratatui_finder::{FinderState, FinderConfig, render_finder_popup};
 
-let config = FinderConfig {
-    mode: FinderMode::Dir,
-    ..Default::default()
-};
-
-let mut state = FinderState::new(config);
+let mut state = FinderState::new(FinderConfig::default());
 
 // In your event loop:
 let action = state.handle_key(key_event);
 
 // In your render function:
 render_finder_popup(f, area, &mut state);
+```
+
+A runnable demo is available:
+
+```sh
+cargo run --example demo
 ```
 
 ## Default Key Bindings
@@ -189,7 +190,7 @@ let state = FinderState::new(config);
 ## Visual Layout
 
 ```
-╭─ Go to Path ─────────────────────╮
+╭─ Go to Path ────────────────────╮
 │ ~/projects/my_app/              │  ← input line
 ├─────────────────────────────────┤  ← separator (─)
 │ ~/projects/my_app/              │  ← self-item (selected: highlighted bg)

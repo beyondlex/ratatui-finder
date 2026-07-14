@@ -16,10 +16,7 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
-    let mut state = FinderState::new(FinderConfig {
-        initial_path: "~".to_string(),
-        ..Default::default()
-    });
+    let mut state = FinderState::new(FinderConfig::default());
 
     let res = run(&mut terminal, &mut state);
 

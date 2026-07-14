@@ -3,6 +3,10 @@ name = "ratatui-finder"
 version = "0.1.0"
 edition = "2021"
 description = "macOS Finder-style path navigation component for ratatui TUI applications"
+license = "MIT"
+repository = "https://github.com/lex/ratatui-finder"
+keywords = ["ratatui", "tui", "finder", "navigation", "file-browser"]
+categories = ["command-line-utilities", "gui"]
 
 [dependencies]
 ratatui = "0.29"
@@ -15,7 +19,3 @@ tempfile = "3"
 [lib]
 name = "ratatui_finder"
 path = "src/lib.rs"
-
-[[bin]]
-name = "ratatui-finder"
-path = "src/main.rs"
