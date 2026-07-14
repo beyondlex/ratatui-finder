@@ -111,10 +111,10 @@ impl Default for FinderColors {
         Self {
             input_fg: Color::White,
             input_bg: Color::Black,
-            hint_fg: Color::DarkGray,
+            hint_fg: Color::Cyan,
             hint_bg: Color::Black,
-            selected_bg: Color::DarkGray,
-            selected_fg: Color::White,
+            selected_bg: Color::Blue,
+            selected_fg: Color::Black,
             normal_bg: Color::Black,
             normal_fg: Color::White,
             match_fg: Color::Yellow,
@@ -758,5 +758,13 @@ mod tests {
         // Custom 'q' should cancel
         let action = state.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert_eq!(action, FinderAction::Cancel);
+    }
+
+    #[test]
+    fn test_style_colors_are_set() {
+        use ratatui::style::{Color, Style};
+        let s = Style::default().fg(Color::Red).bg(Color::Blue);
+        assert_eq!(s.fg, Some(Color::Red));
+        assert_eq!(s.bg, Some(Color::Blue));
     }
 }

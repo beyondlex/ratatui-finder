@@ -104,9 +104,9 @@ All color fields and their defaults:
 |---|---|---|
 | `input_fg` | `White` | Input text |
 | `input_bg` | `Black` | Input background |
-| `hint_fg` | `DarkGray` | Tab completion hint |
+| `hint_fg` | `Cyan` | Tab completion hint |
 | `hint_bg` | `Black` | Hint background |
-| `selected_bg` | `DarkGray` | Selected result row background |
+| `selected_bg` | `Blue` | Selected result row background |
 | `selected_fg` | `White` | Selected result row text |
 | `normal_bg` | `Black` | Unselected result row background |
 | `normal_fg` | `White` | Unselected result row text |

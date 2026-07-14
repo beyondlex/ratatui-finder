@@ -17,8 +17,6 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect { x, y, width: popup_width, height: popup_height };
 
-    f.render_widget(Clear, popup_area);
-
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Go to Path ")
@@ -37,15 +35,12 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
     let separator_area = chunks[1];
     let results_area = chunks[2];
 
+    f.render_widget(Clear, popup_area);
+    f.render_widget(block, popup_area);
+
     render_input_line(f, input_area, state, &colors);
     render_separator(f, separator_area, &colors);
     render_results_list(f, results_area, state, &colors);
-
-    f.render_widget(block, popup_area);
-
-    let cursor_x = x + 1 + state.cursor as u16;
-    let cursor_x = cursor_x.min(x + popup_width - 2);
-    f.set_cursor_position(ratatui::layout::Position::new(cursor_x, y + 1));
 }
 
 fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors: &FinderColors) {
@@ -84,16 +79,18 @@ fn render_input_line(f: &mut Frame, area: Rect, state: &mut FinderState, colors:
     }
 
     let paragraph = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(colors.input_bg));
+        .style(Style::default().fg(colors.input_fg).bg(colors.input_bg));
     f.render_widget(paragraph, area);
+
+    let cursor_x = area.x + state.cursor as u16;
+    let cursor_x = cursor_x.min(area.x + area.width - 1);
+    f.set_cursor_position(ratatui::layout::Position::new(cursor_x, area.y));
 }
 
 fn render_separator(f: &mut Frame, area: Rect, colors: &FinderColors) {
     let sep = "─".repeat(area.width as usize);
-    let paragraph = Paragraph::new(Line::from(vec![Span::styled(
-        sep,
-        Style::default().fg(colors.separator_fg),
-    )]));
+    let spans = vec![Span::styled(sep, Style::default().fg(colors.separator_fg))];
+    let paragraph = Paragraph::new(Line::from(spans));
     f.render_widget(paragraph, area);
 }
 
@@ -116,6 +113,8 @@ fn render_results_list(
         0
     };
 
+    let buf = f.buffer_mut();
+
     for i in 0..visible_count {
         let item_idx = scroll_offset + i;
         if item_idx >= total_items {
@@ -125,71 +124,48 @@ fn render_results_list(
         let item = &state.items[item_idx];
         let is_selected = item_idx == state.selected;
 
-        let line_y = area.y + i as u16;
-        let line_area = Rect {
-            x: area.x,
-            y: line_y,
-            width: area.width,
-            height: 1,
-        };
-
         let (fg, bg) = if is_selected {
             (colors.selected_fg, colors.selected_bg)
         } else {
             (colors.normal_fg, colors.normal_bg)
         };
-        let base_style = Style::default().bg(bg).fg(fg);
 
-        // Build line content spans
-        let mut spans = Vec::new();
+        let line_y = area.y + i as u16;
         let display_text = &item.display;
+        let chars: Vec<char> = display_text.chars().collect();
 
-        if item.match_positions.is_empty() {
-            spans.push(Span::styled(display_text.clone(), base_style));
+        // Build a set of match positions for quick lookup
+        let is_match: Vec<bool> = if item.match_positions.is_empty() {
+            vec![false; chars.len()]
         } else {
-            let mut last_end = 0;
-            let sorted_positions = {
-                let mut p = item.match_positions.clone();
-                p.sort();
-                p.dedup();
-                p
-            };
-
-            for &pos in &sorted_positions {
-                if pos > last_end && last_end < display_text.len() {
-                    spans.push(Span::styled(
-                        display_text[last_end..pos].to_string(),
-                        base_style,
-                    ));
-                }
-
-                if pos < display_text.len() {
-                    let ch = display_text[pos..].chars().next().unwrap_or_default();
-                    let ch_len = ch.len_utf8();
-                    let end = pos + ch_len;
-                    spans.push(Span::styled(
-                        ch.to_string(),
-                        base_style.fg(colors.match_fg).add_modifier(Modifier::BOLD),
-                    ));
-                    last_end = end;
+            let mut set = vec![false; chars.len()];
+            for &p in &item.match_positions {
+                if p < set.len() {
+                    set[p] = true;
                 }
             }
+            set
+        };
 
-            if last_end < display_text.len() {
-                spans.push(Span::styled(
-                    display_text[last_end..].to_string(),
-                    base_style,
-                ));
+        for col in 0..area.width {
+            let cell = &mut buf[(area.x + col, line_y)];
+            let col_u = col as usize;
+            if col_u < chars.len() {
+                let ch = chars[col_u];
+                if col_u < is_match.len() && is_match[col_u] {
+                    cell.set_fg(colors.match_fg);
+                    cell.set_bg(bg);
+                    cell.modifier = Modifier::BOLD;
+                } else {
+                    cell.set_fg(fg);
+                    cell.set_bg(bg);
+                }
+                cell.set_char(ch);
+            } else {
+                cell.set_fg(fg);
+                cell.set_bg(bg);
+                cell.set_char(' ');
             }
         }
-
-        // Pad to fill full line width for selection background
-        spans.push(Span::styled(
-            " ".repeat(area.width as usize),
-            base_style,
-        ));
-
-        let paragraph = Paragraph::new(Line::from(spans));
-        f.render_widget(paragraph, line_area);
     }
 }
