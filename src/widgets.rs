@@ -19,7 +19,8 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Go to Path ")
+        .border_type(state.config.border_type)
+        .title(state.config.title.as_str())
         .style(Style::default().fg(colors.border_fg).bg(colors.border_bg));
     let inner = block.inner(popup_area);
 

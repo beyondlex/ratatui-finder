@@ -135,19 +135,25 @@ pub struct FinderConfig {
     pub extensions: Option<Vec<String>>,
     pub colors: FinderColors,
     pub keys: FinderKeys,
+    pub border_type: BorderType,
+    pub title: String,
 }
 
 impl Default for FinderConfig {
     fn default() -> Self {
         Self {
             mode: FinderMode::Both,
-            initial_path: "~".to_string(),
+            initial_path: "~/".to_string(),
             extensions: None,
             colors: FinderColors::default(),
             keys: FinderKeys::default(),
+            border_type: BorderType::Rounded,
+            title: " Go to Path ".to_string(),
         }
     }
 }
+
+use ratatui::widgets::BorderType;
 
 /// An item in the finder results list, ready for rendering.
 #[derive(Debug, Clone)]
@@ -180,6 +186,7 @@ pub struct FinderState {
 
     parent_display: String,
     raw_items: Vec<RawItem>,
+    cached_dir: String,
 }
 
 fn matches_any(key: &KeyEvent, bindings: &[KeyBinding]) -> bool {
@@ -191,13 +198,18 @@ fn matches_any(key: &KeyEvent, bindings: &[KeyBinding]) -> bool {
 impl FinderState {
     /// Create a new FinderState with the given configuration.
     pub fn new(config: FinderConfig) -> Self {
+        let mut input = config.initial_path.clone();
+        if !input.ends_with('/') && fs::is_dir(&input) {
+            input.push('/');
+        }
         let mut state = Self {
-            input: config.initial_path.clone(),
-            cursor: config.initial_path.len(),
+            cursor: input.len(),
+            input,
             items: Vec::new(),
             selected: 0,
             parent_display: String::new(),
             raw_items: Vec::new(),
+            cached_dir: String::new(),
             config,
         };
         state.refresh();
@@ -395,19 +407,28 @@ impl FinderState {
         self.refresh();
     }
 
+    fn list_dir_cached(&mut self, dir: &str) {
+        let expanded = fs::expand(dir);
+        if self.cached_dir != expanded {
+            self.raw_items = fs::list(&expanded, self.config.mode);
+            self.cached_dir = expanded;
+        }
+    }
+
     fn update_items(&mut self) {
         let input = self.input.clone();
 
         if input.is_empty() {
             self.items.clear();
             self.raw_items.clear();
+            self.cached_dir.clear();
             return;
         }
 
         let expanded = fs::expand(&input);
 
         if input.ends_with('/') {
-            self.raw_items = fs::list(&expanded, self.config.mode);
+            self.list_dir_cached(&expanded);
             self.parent_display = input.clone();
             self.items = self.build_listing_items(&expanded, &input);
         } else if !input.contains('/') {
@@ -417,12 +438,11 @@ impl FinderState {
                 } else {
                     format!("{}/", input)
                 };
-                self.raw_items = fs::list(&expanded, self.config.mode);
+                self.list_dir_cached(&expanded);
                 self.parent_display = dir_path.clone();
                 self.items = self.build_listing_items(&expanded, &dir_path);
             } else {
-                let cwd = ".";
-                self.raw_items = fs::list(cwd, self.config.mode);
+                self.list_dir_cached(".");
                 self.parent_display = String::new();
                 let matched = matcher::match_items(&self.raw_items, &input);
                 self.items = matched
@@ -444,7 +464,7 @@ impl FinderState {
                 let offset = parent_dir.len();
 
                 let expanded_parent = fs::expand(parent_dir);
-                self.raw_items = fs::list(&expanded_parent, self.config.mode);
+                self.list_dir_cached(&expanded_parent);
                 self.parent_display = parent_dir.to_string();
 
                 let matched = matcher::match_items(&self.raw_items, partial);
@@ -494,8 +514,8 @@ mod tests {
             initial_path: "~".to_string(),
             ..Default::default()
         });
-        assert_eq!(state.input, "~");
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.input, "~/");
+        assert_eq!(state.cursor, 2);
     }
 
     #[test]
@@ -645,7 +665,7 @@ mod tests {
         });
         state.items.clear();
         let action = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        assert_eq!(action, FinderAction::Confirm("/tmp".to_string()));
+        assert_eq!(action, FinderAction::Confirm("/tmp/".to_string()));
     }
 
     #[test]
@@ -728,7 +748,7 @@ mod tests {
 
         // Custom Ctrl-o should confirm
         let action = state.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
-        assert_eq!(action, FinderAction::Confirm("~".to_string()));
+        assert_eq!(action, FinderAction::Confirm("~/".to_string()));
 
         // Custom 'q' should cancel
         let action = state.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));

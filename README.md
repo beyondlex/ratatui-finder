@@ -11,6 +11,9 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 - **Parent navigation** — `Ctrl-w` jumps to parent directory
 - **Customizable colors** — override any color in the UI
 - **Customizable key bindings** — rebind all actions to your preferred keys
+- **Rounded or straight borders** — configurable `BorderType` (Rounded, Plain, Double, Thick)
+- **Custom title** — set your own popup title text
+- **Smart path entry** — directory paths auto-append `/` on initialization
 - **Fully self-contained** — no dependency on any framework, just pure data structures + `Widget` rendering
 
 ## Quick Start
@@ -23,11 +26,12 @@ ratatui-finder = { path = "../ratatui-finder" }
 ```rust
 use ratatui_finder::{FinderState, FinderConfig, FinderMode, render_finder_popup};
 
-let mut state = FinderState::new(FinderConfig {
+let config = FinderConfig {
     mode: FinderMode::Dir,
-    initial_path: "~".to_string(),
     ..Default::default()
-});
+};
+
+let mut state = FinderState::new(config);
 
 // In your event loop:
 let action = state.handle_key(key_event);
@@ -58,7 +62,7 @@ All key bindings are configurable via `FinderKeys` — see [Customization](#cust
 ### Types
 
 - **`FinderState`** — main state machine holding input, cursor, results, and config
-- **`FinderConfig`** — configuration: `mode`, `initial_path`, `extensions`, `colors`, `keys`
+- **`FinderConfig`** — configuration: `mode`, `initial_path`, `extensions`, `colors`, `keys`, `border_type`, `title`
 - **`FinderMode`** — filter mode: `Dir`, `File`, `Both`
 - **`FinderAction`** — feedback to host: `None`, `Confirm(String)`, `Cancel`, `Redraw`
 - **`FinderItem`** — a result item with match positions for highlighting
@@ -85,7 +89,6 @@ use ratatui::style::Color;
 
 let config = FinderConfig {
     mode: FinderMode::Dir,
-    initial_path: "~".to_string(),
     colors: FinderColors {
         selected_bg: Color::Blue,
         match_fg: Color::Cyan,
@@ -110,7 +113,7 @@ All color fields and their defaults:
 | `selected_fg` | `White` | Selected result row text |
 | `normal_bg` | `Black` | Unselected result row background |
 | `normal_fg` | `White` | Unselected result row text |
-| `match_fg` | `Yellow` | Highlighted match characters |
+| `match_fg` | `Green` | Highlighted match characters |
 | `border_fg` | `White` | Popup border |
 | `border_bg` | `Black` | Popup border background |
 | `separator_fg` | `DarkGray` | Separator line between input and results |
@@ -161,10 +164,32 @@ Available action fields:
 | `parent_dir` | `Ctrl-w` | Go to parent directory |
 | `clear_input` | `Ctrl-u` | Clear input |
 
+### Border & Title
+
+Customize the popup border style and title:
+
+```rust
+use ratatui::widgets::BorderType;
+use ratatui_finder::{FinderConfig, FinderState};
+
+let config = FinderConfig {
+    title: " Navigate ".to_string(),
+    border_type: BorderType::Plain,
+    ..Default::default()
+};
+
+let state = FinderState::new(config);
+```
+
+| Field | Default | Options |
+|---|---|---|
+| `title` | `" Go to Path "` | Any string |
+| `border_type` | `BorderType::Rounded` | `Plain`, `Rounded`, `Double`, `Thick`, `QuadrantInside`, `QuadrantOutside` |
+
 ## Visual Layout
 
 ```
-┌─ Go to Path ────────────────────┐
+╭─ Go to Path ─────────────────────╮
 │ ~/projects/my_app/              │  ← input line
 ├─────────────────────────────────┤  ← separator (─)
 │ ~/projects/my_app/              │  ← self-item (selected: highlighted bg)
@@ -173,5 +198,5 @@ Available action fields:
 │ my_app/config/                  │
 │ my_app/README.md                │
 │ my_app/Cargo.toml               │
-└─────────────────────────────────┘
+╰─────────────────────────────────╯
 ```
