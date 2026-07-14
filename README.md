@@ -2,20 +2,7 @@
 
 A macOS Finder-style "Go to Path" directory navigation component for [ratatui](https://ratatui.rs) TUI applications.
 
-
-```
-╭ Go to Path ──────────────────────────────────╮
-│~/code/ → astro                               │
-│──────────────────────────────────────────────│
-│~/code/astro                                  │
-│~/code/book                                   │
-│~/code/c                                      │
-│~/code/chrome                                 │
-│~/code/frontend                               │
-│~/code/github                                 │
-│~/code/gitlab                                 │
-╰──────────────────────────────────────────────╯
-```
+![ratatui-finder](https://github.com/beyondlex/images/blob/main/ratatui-finder.png)
 
 ## Features
 

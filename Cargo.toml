@@ -4,7 +4,7 @@ version = "0.3.0"
 edition = "2021"
 description = "macOS Finder-style path navigation component for ratatui TUI applications"
 license = "MIT"
-repository = "https://github.com/lex/ratatui-finder"
+repository = "https://github.com/beyondlex/ratatui-finder"
 keywords = ["ratatui", "tui", "finder", "navigation", "file-browser"]
 categories = ["command-line-utilities", "gui"]
 
