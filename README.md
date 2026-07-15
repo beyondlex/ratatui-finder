@@ -23,18 +23,37 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 ```toml
 [dependencies]
 ratatui-finder = "0.5.0"
+crossterm = "0.28"
 ```
 
 ```rust
-use ratatui_finder::{FinderState, FinderConfig, render_finder_popup};
+use crossterm::event::{self, Event, DisableBracketedPaste, EnableBracketedPaste};
+use ratatui_finder::{FinderState, FinderConfig, FinderAction, render_finder_popup};
 
 let mut state = FinderState::new(FinderConfig::default());
 
+// In your setup:
+execute!(stdout, EnableBracketedPaste)?;
+
 // In your event loop:
-let action = state.handle_key(key_event);
+loop {
+    match event::read()? {
+        Event::Key(key) => match state.handle_key(key) {
+            FinderAction::Confirm(path) => { /* use path */ break; }
+            FinderAction::Cancel => break,
+            FinderAction::Redraw => {}
+            _ => {}
+        },
+        Event::Paste(text) => state.handle_paste(&text),
+        _ => {}
+    }
+}
 
 // In your render function:
-render_finder_popup(f, area, &mut state);
+render_finder_popup(f, f.area(), &mut state);
+
+// On cleanup:
+execute!(stdout, DisableBracketedPaste)?;
 ```
 
 A runnable demo is available:
@@ -52,10 +71,12 @@ cargo run --example demo
 | `Esc` / `Ctrl-c` | Cancel |
 | `Tab` | Complete selected item name |
 | `Up` / `Down` or `Ctrl-p` / `Ctrl-n` | Navigate results |
-| `Ctrl-w` | Go to parent directory |
+| `Ctrl-w` or `Option+Backspace` | Go to parent directory |
 | `Ctrl-u` | Clear input |
 | `Home` / `End` or `Ctrl-a` / `Ctrl-e` | Cursor to start/end |
 | `Left` / `Right` | Move cursor |
+| `Option+Left` | Move cursor left by one word |
+| `Option+Right` | Move cursor right by one word |
 | `Backspace` / `Delete` | Delete character |
 
 All key bindings are configurable via `FinderKeys` — see [Customization](#customization).
@@ -65,7 +86,7 @@ All key bindings are configurable via `FinderKeys` — see [Customization](#cust
 ### Types
 
 - **`FinderState`** — main state machine holding input, cursor, results, and config
-- **`FinderConfig`** — configuration: `mode`, `show_hidden`, `initial_path`, `extensions`, `colors`, `keys`, `border_type`, `title`
+- **`FinderConfig`** — configuration: `mode`, `initial_path`, `extensions`, `colors`, `keys`, `border_type`, `title`
 - **`FinderMode`** — filter mode: `Dir`, `File`, `Both`
 - **`FinderAction`** — feedback to host: `None`, `Confirm(String)`, `Cancel`, `Redraw`
 - **`FinderItem`** — a result item with match positions for highlighting
@@ -73,12 +94,48 @@ All key bindings are configurable via `FinderKeys` — see [Customization](#cust
 - **`FinderKeys`** — key binding configuration for all actions
 - **`KeyBinding`** — a single key binding (code + modifiers)
 
-### Functions
+### Methods
 
-- `FinderState::new(config)` — create a new instance
-- `state.handle_key(key)` — process a key event, returns `FinderAction`
-- `state.refresh()` — force refresh after external input changes
-- `render_finder_popup(f, area, &mut state)` — render the finder UI in a ratatui frame
+| Method | Returns | Description |
+|---|---|---|
+| `FinderState::new(config)` | `Self` | Create a new instance |
+| `state.handle_key(key)` | `FinderAction` | Process a key event from your event loop |
+| `state.handle_paste(text)` | — | Paste text at cursor (single refresh). Wire to `Event::Paste` |
+| `state.word_left()` | — | Move cursor left by one word (bound to `Alt+b` / `Esc b`) |
+| `state.word_right()` | — | Move cursor right by one word (bound to `Alt+f` / `Esc f`) |
+| `state.refresh()` | — | Force refresh the results list |
+| `render_finder_popup(f, area, &mut state)` | — | Render the finder popup in a ratatui frame |
+
+### Integration Pattern
+
+The finder is a pure state machine — it renders via ratatui and returns actions via `handle_key`.
+No callbacks, no channels. Typical integration:
+
+1. Create `FinderState` with your config
+2. In your event loop, pass `Event::Key` to `state.handle_key()`
+3. Match the returned `FinderAction`:
+   - `Confirm(path)` — user selected or typed a path
+   - `Cancel` — user dismissed the popup
+   - `Redraw` — state changed, render again
+   - `None` — unhandled key, you can process it further
+4. In your render pass, call `render_finder_popup(f, area, &mut state)`
+
+### Paste Support
+
+Enable bracketed paste mode on the terminal so that pasted text arrives as a single `Event::Paste` instead of many individual key events:
+
+```rust
+use crossterm::event::{EnableBracketedPaste, DisableBracketedPaste};
+
+// After entering raw mode:
+execute!(stdout, EnableBracketedPaste)?;
+
+// In your event loop:
+Event::Paste(text) => state.handle_paste(&text),
+
+// On cleanup:
+execute!(stdout, DisableBracketedPaste)?;
+```
 
 ## Customization
 
@@ -106,20 +163,21 @@ let state = FinderState::new(config);
 
 All color fields and their defaults:
 
-| Field | Default | Purpose |
-|---|---|---|
-| `input_fg` | `White` | Input text |
-| `input_bg` | `Black` | Input background |
-| `hint_fg` | `Cyan` | Tab completion hint |
-| `hint_bg` | `Black` | Hint background |
-| `selected_bg` | `Blue` | Selected result row background |
-| `selected_fg` | `White` | Selected result row text |
-| `normal_bg` | `Black` | Unselected result row background |
-| `normal_fg` | `White` | Unselected result row text |
-| `match_fg` | `Green` | Highlighted match characters |
-| `border_fg` | `White` | Popup border |
-| `border_bg` | `Black` | Popup border background |
+| Field          | Default | Purpose                                  |
+|----------------|---|------------------------------------------|
+| `input_fg`     | `White` | Input text                               |
+| `input_bg`     | `Black` | Input background                         |
+| `hint_fg`      | `Cyan` | Tab completion hint                      |
+| `hint_bg`      | `Black` | Hint background                          |
+| `selected_bg`  | `Blue` | Selected result row background           |
+| `selected_fg`  | `White` | Selected result row text                 |
+| `normal_bg`    | `Black` | Unselected result row background         |
+| `normal_fg`    | `White` | Unselected result row text               |
+| `match_fg`     | `Green` | Highlighted match characters             |
+| `border_fg`    | `White` | Popup border                             |
+| `border_bg`    | `Black` | Popup border background                  |
 | `separator_fg` | `DarkGray` | Separator line between input and results |
+| `title_fg`     | `Gray` | Title text                               |
 
 ### Key Bindings
 
@@ -186,7 +244,7 @@ let state = FinderState::new(config);
 
 | Field | Default | Options |
 |---|---|---|
-| `title` | `" Go to Path "` | Any string |
-| `show_hidden` | `true` | Show dotfiles (`.` prefix) in listings |
+| `title` | `" Go to: "` | Any string |
+| `title_fg` | `Gray` | Title text color (set on `FinderColors`) |
 | `border_type` | `BorderType::Rounded` | `Plain`, `Rounded`, `Double`, `Thick`, `QuadrantInside`, `QuadrantOutside` |
 
