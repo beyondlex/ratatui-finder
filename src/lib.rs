@@ -103,6 +103,7 @@ pub struct FinderColors {
     pub border_fg: Color,
     pub border_bg: Color,
     pub separator_fg: Color,
+    pub title_fg: Color,
 }
 
 use ratatui::style::Color;
@@ -123,6 +124,7 @@ impl Default for FinderColors {
             border_fg: Color::White,
             border_bg: Color::Black,
             separator_fg: Color::DarkGray,
+            title_fg: Color::Gray,
         }
     }
 }
@@ -131,7 +133,6 @@ impl Default for FinderColors {
 #[derive(Debug, Clone)]
 pub struct FinderConfig {
     pub mode: FinderMode,
-    pub show_hidden: bool,
     pub initial_path: String,
     pub extensions: Option<Vec<String>>,
     pub colors: FinderColors,
@@ -144,13 +145,12 @@ impl Default for FinderConfig {
     fn default() -> Self {
         Self {
             mode: FinderMode::Both,
-            show_hidden: true,
             initial_path: "~/".to_string(),
             extensions: None,
             colors: FinderColors::default(),
             keys: FinderKeys::default(),
             border_type: BorderType::Rounded,
-            title: " Go to Path ".to_string(),
+            title: " Go to: ".to_string(),
         }
     }
 }
@@ -228,6 +228,18 @@ impl FinderState {
         }
     }
 
+    /// Paste text at cursor position (single refresh after all text is inserted).
+    pub fn handle_paste(&mut self, text: &str) {
+        let text = text.trim();
+        for c in text.chars() {
+            if self.cursor <= self.input.len() {
+                self.input.insert(self.cursor, c);
+                self.cursor += c.len_utf8();
+            }
+        }
+        self.refresh();
+    }
+
     /// Handle a key event and return an action for the host.
     pub fn handle_key(&mut self, key: KeyEvent) -> FinderAction {
         let keys = &self.config.keys;
@@ -260,13 +272,23 @@ impl FinderState {
         }
         if matches_any(&key, &keys.cursor_left) {
             if self.cursor > 0 {
-                self.cursor = self.cursor.saturating_sub(1);
+                let prev = self.input[..self.cursor]
+                    .char_indices()
+                    .rev()
+                    .next()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                self.cursor = prev;
             }
             return FinderAction::Redraw;
         }
         if matches_any(&key, &keys.cursor_right) {
             if self.cursor < self.input.len() {
-                self.cursor = self.cursor.saturating_add(1).min(self.input.len());
+                self.cursor += self.input[self.cursor..]
+                    .chars()
+                    .next()
+                    .map(|c| c.len_utf8())
+                    .unwrap_or(0);
             }
             return FinderAction::Redraw;
         }
@@ -305,6 +327,11 @@ impl FinderState {
             self.go_up_dir();
             return FinderAction::Redraw;
         }
+        // Option+Backspace (macOS: Esc + DEL → Key(Backspace, ALT))
+        if key.code == KeyCode::Backspace && key.modifiers == KeyModifiers::ALT {
+            self.go_up_dir();
+            return FinderAction::Redraw;
+        }
         if matches_any(&key, &keys.clear_input) {
             self.input.clear();
             self.cursor = 0;
@@ -312,11 +339,21 @@ impl FinderState {
             return FinderAction::Redraw;
         }
 
+        // Option+Left / Option+Right (macOS terminal sends as Alt+b / Alt+f)
+        if key.code == KeyCode::Char('b') && key.modifiers == KeyModifiers::ALT {
+            self.word_left();
+            return FinderAction::Redraw;
+        }
+        if key.code == KeyCode::Char('f') && key.modifiers == KeyModifiers::ALT {
+            self.word_right();
+            return FinderAction::Redraw;
+        }
+
         // Fallback: character input (any Char not caught by configured bindings)
         if let KeyCode::Char(c) = key.code {
             if self.cursor <= self.input.len() {
                 self.input.insert(self.cursor, c);
-                self.cursor += 1;
+                self.cursor += c.len_utf8();
                 self.refresh();
             }
             return FinderAction::Redraw;
@@ -384,6 +421,52 @@ impl FinderState {
         self.refresh();
     }
 
+    /// Move cursor left by one word (delimited by `/` or whitespace).
+    pub fn word_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let bytes = self.input.as_bytes();
+        let mut i = self.cursor.saturating_sub(1);
+        // skip non-word chars (anything that is not alphanumeric, _, -, ., or path chars)
+        while i > 0 && !bytes[i].is_ascii_alphanumeric() && bytes[i] != b'_'
+            && bytes[i] != b'-' && bytes[i] != b'.'
+        {
+            i -= 1;
+        }
+        // skip word chars
+        while i > 0 && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_'
+            || bytes[i] == b'-' || bytes[i] == b'.')
+        {
+            i -= 1;
+        }
+        if i > 0 { i += 1; }
+        self.cursor = i;
+    }
+
+    /// Move cursor right by one word (delimited by `/` or whitespace).
+    pub fn word_right(&mut self) {
+        let len = self.input.len();
+        if self.cursor >= len {
+            return;
+        }
+        let bytes = self.input.as_bytes();
+        let mut i = self.cursor;
+        // skip non-word chars
+        while i < len && !bytes[i].is_ascii_alphanumeric() && bytes[i] != b'_'
+            && bytes[i] != b'-' && bytes[i] != b'.'
+        {
+            i += 1;
+        }
+        // skip word chars
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_'
+            || bytes[i] == b'-' || bytes[i] == b'.')
+        {
+            i += 1;
+        }
+        self.cursor = i;
+    }
+
     fn go_up_dir(&mut self) {
         if self.input.is_empty() || self.input == "/" {
             return;
@@ -409,11 +492,36 @@ impl FinderState {
         self.refresh();
     }
 
+    /// Whether hidden files should be shown based on current input.
+    fn show_hidden(input: &str) -> bool {
+        if input.is_empty() {
+            return false;
+        }
+        if input.ends_with('/') {
+            return input.trim_end_matches('/').ends_with('/')
+                || input == "/.";
+        }
+        if let Some(slash) = input.rfind('/') {
+            input[slash + 1..].starts_with('.')
+        } else {
+            input.starts_with('.')
+        }
+    }
+
     fn list_dir_cached(&mut self, dir: &str) {
         let expanded = fs::expand(dir);
         if self.cached_dir != expanded {
-            self.raw_items = fs::list(&expanded, self.config.mode, self.config.show_hidden);
+            self.raw_items = fs::list(&expanded, self.config.mode, true);
             self.cached_dir = expanded;
+        }
+    }
+
+    fn filtered_raw_items(&self, input: &str) -> Vec<RawItem> {
+        let show_hidden = Self::show_hidden(input);
+        if show_hidden {
+            self.raw_items.clone()
+        } else {
+            self.raw_items.iter().filter(|r| !r.name.starts_with('.')).cloned().collect()
         }
     }
 
@@ -432,7 +540,8 @@ impl FinderState {
         if input.ends_with('/') {
             self.list_dir_cached(&expanded);
             self.parent_display = input.clone();
-            self.items = self.build_listing_items(&expanded, &input);
+            let filtered = self.filtered_raw_items(&input);
+            self.items = self.build_listing_items(&expanded, &input, &filtered);
         } else if !input.contains('/') {
             if fs::is_dir(&expanded) {
                 let dir_path = if input == "~" {
@@ -442,11 +551,13 @@ impl FinderState {
                 };
                 self.list_dir_cached(&expanded);
                 self.parent_display = dir_path.clone();
-                self.items = self.build_listing_items(&expanded, &dir_path);
+                let filtered = self.filtered_raw_items(&input);
+                self.items = self.build_listing_items(&expanded, &dir_path, &filtered);
             } else {
                 self.list_dir_cached(".");
                 self.parent_display = String::new();
-                let matched = matcher::match_items(&self.raw_items, &input);
+                let filtered = self.filtered_raw_items(&input);
+                let matched = matcher::match_items(&filtered, &input);
                 self.items = matched
                     .into_iter()
                     .map(|m| FinderItem {
@@ -469,7 +580,8 @@ impl FinderState {
                 self.list_dir_cached(&expanded_parent);
                 self.parent_display = parent_dir.to_string();
 
-                let matched = matcher::match_items(&self.raw_items, partial);
+                let filtered = self.filtered_raw_items(&input);
+                let matched = matcher::match_items(&filtered, partial);
                 self.items = matched
                     .into_iter()
                     .map(|m| {
@@ -486,7 +598,7 @@ impl FinderState {
             }
     }
 
-    fn build_listing_items(&mut self, _expanded_dir: &str, display_dir: &str) -> Vec<FinderItem> {
+    fn build_listing_items(&mut self, _expanded_dir: &str, display_dir: &str, items_source: &[RawItem]) -> Vec<FinderItem> {
         let mut items = Vec::new();
 
         let self_display = display_dir.trim_end_matches('/');
@@ -499,7 +611,7 @@ impl FinderState {
             match_positions: Vec::new(),
         });
 
-        for raw in &self.raw_items {
+        for raw in items_source {
             items.push(FinderItem {
                 display: format!("{}{}", display_dir, raw.name),
                 name: raw.name.clone(),

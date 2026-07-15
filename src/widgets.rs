@@ -21,6 +21,7 @@ pub fn render_finder_popup(f: &mut Frame, area: Rect, state: &mut FinderState) {
         .borders(Borders::ALL)
         .border_type(state.config.border_type)
         .title(state.config.title.as_str())
+        .title_style(colors.title_fg)
         .style(Style::default().fg(colors.border_fg).bg(colors.border_bg));
     let inner = block.inner(popup_area);
 

@@ -22,7 +22,7 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 
 ```toml
 [dependencies]
-ratatui-finder = "0.4.0"
+ratatui-finder = "0.5.0"
 ```
 
 ```rust

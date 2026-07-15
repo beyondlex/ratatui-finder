@@ -1,17 +1,21 @@
 use anyhow::Result;
+use std::io::stdout;
+
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use ratatui_finder::{FinderAction, FinderConfig, FinderState, render_finder_popup};
-use std::io::stdout;
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
@@ -21,7 +25,7 @@ fn main() -> Result<()> {
     let res = run(&mut terminal, &mut state);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableBracketedPaste)?;
     terminal.show_cursor()?;
 
     if let Ok(FinderAction::Confirm(path)) = res {
@@ -49,6 +53,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, state: &mut F
                         }
                     }
                 }
+            }
+            Event::Paste(text) => {
+                state.handle_paste(&text);
             }
             Event::Resize(_, _) => {}
             _ => {}
