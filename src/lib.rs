@@ -468,7 +468,13 @@ impl FinderState {
     }
 
     fn go_up_dir(&mut self) {
-        if self.input.is_empty() || self.input == "/" {
+        if self.input.is_empty() {
+            return;
+        }
+        if self.input == "/" || self.input == "~/" {
+            self.input.clear();
+            self.cursor = 0;
+            self.refresh();
             return;
         }
         let trimmed = if self.input.ends_with('/') && self.input.len() > 1 {
@@ -483,10 +489,10 @@ impl FinderState {
                 format!("{}/", &trimmed[..slash_pos])
             };
         } else {
-            let parent = fs::parent(&self.input);
-            if parent != self.input {
-                self.input = parent;
-            }
+            self.input.clear();
+            self.cursor = 0;
+            self.refresh();
+            return;
         }
         self.cursor = self.input.len();
         self.refresh();
@@ -737,6 +743,26 @@ mod tests {
         });
         state.go_up_dir();
         assert_eq!(state.input, "~/a/");
+    }
+
+    #[test]
+    fn test_go_up_dir_clears_at_root() {
+        let mut state = FinderState::new(FinderConfig {
+            mode: FinderMode::Both,
+            initial_path: "~/".to_string(),
+            ..Default::default()
+        });
+        state.go_up_dir();
+        assert!(state.input.is_empty());
+
+        let mut state = FinderState::new(FinderConfig {
+            mode: FinderMode::Both,
+            initial_path: "/".to_string(),
+            ..Default::default()
+        });
+        state.cursor = 1;
+        state.go_up_dir();
+        assert!(state.input.is_empty());
     }
 
     #[test]
