@@ -22,7 +22,7 @@ A macOS Finder-style "Go to Path" directory navigation component for [ratatui](h
 
 ```toml
 [dependencies]
-ratatui-finder = "0.3.0"
+ratatui-finder = "0.4.0"
 ```
 
 ```rust
@@ -65,7 +65,7 @@ All key bindings are configurable via `FinderKeys` — see [Customization](#cust
 ### Types
 
 - **`FinderState`** — main state machine holding input, cursor, results, and config
-- **`FinderConfig`** — configuration: `mode`, `initial_path`, `extensions`, `colors`, `keys`, `border_type`, `title`
+- **`FinderConfig`** — configuration: `mode`, `show_hidden`, `initial_path`, `extensions`, `colors`, `keys`, `border_type`, `title`
 - **`FinderMode`** — filter mode: `Dir`, `File`, `Both`
 - **`FinderAction`** — feedback to host: `None`, `Confirm(String)`, `Cancel`, `Redraw`
 - **`FinderItem`** — a result item with match positions for highlighting
@@ -187,5 +187,6 @@ let state = FinderState::new(config);
 | Field | Default | Options |
 |---|---|---|
 | `title` | `" Go to Path "` | Any string |
+| `show_hidden` | `true` | Show dotfiles (`.` prefix) in listings |
 | `border_type` | `BorderType::Rounded` | `Plain`, `Rounded`, `Double`, `Thick`, `QuadrantInside`, `QuadrantOutside` |
 

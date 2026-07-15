@@ -131,6 +131,7 @@ impl Default for FinderColors {
 #[derive(Debug, Clone)]
 pub struct FinderConfig {
     pub mode: FinderMode,
+    pub show_hidden: bool,
     pub initial_path: String,
     pub extensions: Option<Vec<String>>,
     pub colors: FinderColors,
@@ -143,6 +144,7 @@ impl Default for FinderConfig {
     fn default() -> Self {
         Self {
             mode: FinderMode::Both,
+            show_hidden: true,
             initial_path: "~/".to_string(),
             extensions: None,
             colors: FinderColors::default(),
@@ -410,7 +412,7 @@ impl FinderState {
     fn list_dir_cached(&mut self, dir: &str) {
         let expanded = fs::expand(dir);
         if self.cached_dir != expanded {
-            self.raw_items = fs::list(&expanded, self.config.mode);
+            self.raw_items = fs::list(&expanded, self.config.mode, self.config.show_hidden);
             self.cached_dir = expanded;
         }
     }

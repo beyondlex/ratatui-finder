@@ -1,6 +1,6 @@
 [package]
 name = "ratatui-finder"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "macOS Finder-style path navigation component for ratatui TUI applications"
 license = "MIT"

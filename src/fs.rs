@@ -69,7 +69,7 @@ pub struct RawItem {
 }
 
 /// List directory contents, filtered by mode, sorted with directories first then alphabetically.
-pub fn list(dir: &str, mode: FinderMode) -> Vec<RawItem> {
+pub fn list(dir: &str, mode: FinderMode, show_hidden: bool) -> Vec<RawItem> {
     let expanded = expand(dir);
     let path = Path::new(&expanded);
 
@@ -78,7 +78,7 @@ pub fn list(dir: &str, mode: FinderMode) -> Vec<RawItem> {
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with('.') {
+                if !show_hidden && name.starts_with('.') {
                     return None;
                 }
                 let is_dir = entry.file_type().ok()?.is_dir();
@@ -175,7 +175,7 @@ mod tests {
         fs::write(dir.join("c.txt"), "").unwrap();
         fs::create_dir(dir.join("d_dir")).unwrap();
 
-        let items = list(dir.to_str().unwrap(), FinderMode::Both);
+        let items = list(dir.to_str().unwrap(), FinderMode::Both, false);
         assert!(items.len() >= 4);
         assert!(items[0].is_dir);
         assert!(items[1].is_dir);
